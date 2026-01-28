@@ -114,8 +114,10 @@ jobs:
           mkdir -p "$OUTDIR/include/uv"
           mkdir -p "$OUTDIR/bin"
 
-          # Copy libraries
-          cp node-src/out/Release/libnode.dylib "$OUTDIR/lib/" || cp node-src/out/Release/lib*.dylib "$OUTDIR/lib/"
+          # Copy libraries (dylib is versioned, e.g., libnode.127.dylib)
+          cp node-src/out/Release/libnode*.dylib "$OUTDIR/lib/"
+          # Create unversioned symlink for convenience
+          cd "$OUTDIR/lib" && ln -sf libnode.*.dylib libnode.dylib && cd -
 
           # Copy headers
           cp node-src/src/*.h "$OUTDIR/include/node/"
@@ -237,7 +239,8 @@ jobs:
           - v8_libplatform.lib
 
           ### macOS (arm64)
-          - libnode.dylib
+          - libnode.*.dylib (versioned, e.g., libnode.127.dylib)
+          - libnode.dylib (symlink)
 
           ### Linux (x64)
           - libnode.so
