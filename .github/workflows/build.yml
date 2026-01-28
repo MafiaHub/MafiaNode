@@ -1,0 +1,254 @@
+name: Build libnode
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      node_version:
+        description: 'Node.js version (e.g., 22.13.0). Leave empty for latest LTS.'
+        required: false
+        default: ''
+
+env:
+  NODE_LTS_MAJOR: 22
+
+jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve Node.js version
+        id: resolve
+        run: |
+          if [ -n "${{ github.event.inputs.node_version }}" ]; then
+            VERSION="${{ github.event.inputs.node_version }}"
+          else
+            VERSION=$(curl -s https://nodejs.org/dist/index.json | jq -r '[.[] | select(.lts != false) | select(.version | startswith("v${{ env.NODE_LTS_MAJOR }}"))][0].version' | sed 's/^v//')
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved Node.js version: $VERSION"
+
+  build-windows:
+    needs: resolve-version
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64, x86]
+    steps:
+      - name: Install NASM
+        run: choco install nasm -y
+
+      - name: Clone Node.js
+        run: |
+          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
+
+      - name: Build Node.js (shared library)
+        shell: cmd
+        run: |
+          cd node-src
+          if "${{ matrix.arch }}" == "x86" (
+            call vcbuild.bat release dll x86 full-icu
+          ) else (
+            call vcbuild.bat release dll x64 full-icu
+          )
+
+      - name: Prepare artifacts
+        shell: pwsh
+        run: |
+          $version = "${{ needs.resolve-version.outputs.version }}"
+          $arch = "${{ matrix.arch }}"
+          $outDir = "libnode-v$version-win-$arch"
+
+          New-Item -ItemType Directory -Force -Path "$outDir/lib"
+          New-Item -ItemType Directory -Force -Path "$outDir/include"
+          New-Item -ItemType Directory -Force -Path "$outDir/bin"
+
+          # Copy libraries
+          Copy-Item "node-src/out/Release/libnode.dll" "$outDir/lib/"
+          Copy-Item "node-src/out/Release/libnode.lib" "$outDir/lib/"
+          Copy-Item "node-src/out/Release/lib/libuv.lib" "$outDir/lib/"
+          Copy-Item "node-src/out/Release/lib/v8_libbase.lib" "$outDir/lib/"
+          Copy-Item "node-src/out/Release/lib/v8_libplatform.lib" "$outDir/lib/"
+
+          # Copy headers
+          Copy-Item -Recurse "node-src/src/*.h" "$outDir/include/"
+          Copy-Item -Recurse "node-src/deps/v8/include/*" "$outDir/include/"
+          Copy-Item -Recurse "node-src/deps/uv/include/*" "$outDir/include/"
+
+          # Copy node executable
+          Copy-Item "node-src/out/Release/node.exe" "$outDir/bin/"
+
+          # Create zip
+          Compress-Archive -Path "$outDir" -DestinationPath "libnode-v$version-win-$arch.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libnode-win-${{ matrix.arch }}
+          path: libnode-v${{ needs.resolve-version.outputs.version }}-win-${{ matrix.arch }}.zip
+
+  build-macos:
+    needs: resolve-version
+    runs-on: macos-14
+    steps:
+      - name: Clone Node.js
+        run: |
+          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
+
+      - name: Build Node.js (shared library)
+        run: |
+          cd node-src
+          ./configure --shared --with-intl=full-icu
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Prepare artifacts
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          OUTDIR="libnode-v$VERSION-darwin-arm64"
+
+          mkdir -p "$OUTDIR/lib"
+          mkdir -p "$OUTDIR/include/node"
+          mkdir -p "$OUTDIR/include/v8"
+          mkdir -p "$OUTDIR/include/uv"
+          mkdir -p "$OUTDIR/bin"
+
+          # Copy libraries
+          cp node-src/out/Release/libnode.dylib "$OUTDIR/lib/" || cp node-src/out/Release/lib*.dylib "$OUTDIR/lib/"
+
+          # Copy headers
+          cp node-src/src/*.h "$OUTDIR/include/node/"
+          cp -R node-src/deps/v8/include/* "$OUTDIR/include/v8/"
+          cp -R node-src/deps/uv/include/* "$OUTDIR/include/uv/"
+
+          # Copy node executable
+          cp node-src/out/Release/node "$OUTDIR/bin/"
+
+          # Create tarball
+          tar -czvf "libnode-v$VERSION-darwin-arm64.tar.gz" "$OUTDIR"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libnode-darwin-arm64
+          path: libnode-v${{ needs.resolve-version.outputs.version }}-darwin-arm64.tar.gz
+
+  build-linux:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3
+
+      - name: Clone Node.js
+        run: |
+          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
+
+      - name: Build Node.js (shared library)
+        run: |
+          cd node-src
+          ./configure --shared --with-intl=full-icu
+          make -j$(nproc)
+
+      - name: Prepare artifacts
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          OUTDIR="libnode-v$VERSION-linux-x64"
+
+          mkdir -p "$OUTDIR/lib"
+          mkdir -p "$OUTDIR/include/node"
+          mkdir -p "$OUTDIR/include/v8"
+          mkdir -p "$OUTDIR/include/uv"
+          mkdir -p "$OUTDIR/bin"
+
+          # Copy shared library
+          cp node-src/out/Release/lib.target/libnode.so* "$OUTDIR/lib/" || cp node-src/out/Release/libnode.so* "$OUTDIR/lib/"
+
+          # Copy static libraries
+          find node-src/out/Release -name "libuv.a" -exec cp {} "$OUTDIR/lib/" \;
+          find node-src/out/Release -name "v8_libbase.a" -exec cp {} "$OUTDIR/lib/" \;
+          find node-src/out/Release -name "v8_libplatform.a" -exec cp {} "$OUTDIR/lib/" \;
+
+          # Copy headers
+          cp node-src/src/*.h "$OUTDIR/include/node/"
+          cp -R node-src/deps/v8/include/* "$OUTDIR/include/v8/"
+          cp -R node-src/deps/uv/include/* "$OUTDIR/include/uv/"
+
+          # Copy node executable
+          cp node-src/out/Release/node "$OUTDIR/bin/"
+
+          # Create tarball
+          tar -czvf "libnode-v$VERSION-linux-x64.tar.gz" "$OUTDIR"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libnode-linux-x64
+          path: libnode-v${{ needs.resolve-version.outputs.version }}-linux-x64.tar.gz
+
+  release:
+    needs: [resolve-version, build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Check if release exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="v${{ needs.resolve-version.outputs.version }}"
+          if gh release view "$VERSION" --repo ${{ github.repository }} > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        if: steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="v${{ needs.resolve-version.outputs.version }}"
+
+          # Collect all artifacts
+          FILES=$(find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \))
+
+          gh release create "$VERSION" \
+            --repo ${{ github.repository }} \
+            --title "libnode $VERSION" \
+            --notes "Pre-built Node.js libraries for embedding in C++ projects.
+
+          ## Included files
+
+          ### Windows (x64 & x86)
+          - libnode.dll
+          - libnode.lib
+          - libuv.lib
+          - v8_libbase.lib
+          - v8_libplatform.lib
+
+          ### macOS (arm64)
+          - libnode.dylib
+
+          ### Linux (x64)
+          - libnode.so
+          - libuv.a
+          - v8_libbase.a
+          - v8_libplatform.a
+
+          All archives include Node.js and V8 headers." \
+            $FILES
+
+      - name: Skip release (already exists)
+        if: steps.check_release.outputs.exists == 'true'
+        run: |
+          echo "Release v${{ needs.resolve-version.outputs.version }} already exists, skipping."
