@@ -443,8 +443,6 @@ jobs:
     needs: resolve-version
     if: needs.resolve-version.outputs.skip_v8 != 'true'
     runs-on: windows-latest
-    env:
-      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
     strategy:
       matrix:
         arch: [x64]
@@ -476,7 +474,7 @@ jobs:
         shell: cmd
         run: |
           cd v8-src\v8
-          gn gen out/release --args="is_debug=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=true target_cpu=\"${{ matrix.arch }}\" is_clang=false"
+          gn gen out/release --args="is_debug=false is_clang=true is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=false use_custom_libcxx=false target_cpu=\"${{ matrix.arch }}\""
 
       - name: Build V8
         shell: cmd
