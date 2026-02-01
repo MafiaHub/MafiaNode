@@ -463,18 +463,17 @@ jobs:
         if: matrix.arch == 'x86'
         shell: pwsh
         run: |
-          # Find and install the x86 Debugging Tools MSI from Windows SDK
-          $msiPath = "${env:ProgramFiles(x86)}\Windows Kits\10\WindowsSDK\Installers\X86 Debuggers And Tools-x86_en-us.msi"
-          if (Test-Path $msiPath) {
-            Write-Host "Installing x86 Debugging Tools from: $msiPath"
-            Start-Process msiexec.exe -ArgumentList "/i", "`"$msiPath`"", "/quiet", "/norestart" -Wait -NoNewWindow
-          } else {
-            Write-Host "MSI not found at expected path, searching..."
-            Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10" -Recurse -Filter "*Debug*x86*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
-              Write-Host "Found: $($_.FullName)"
-              Start-Process msiexec.exe -ArgumentList "/i", "`"$($_.FullName)`"", "/quiet", "/norestart" -Wait -NoNewWindow
-            }
-          }
+          # Create the debugger directory and copy dbghelp.dll from SysWOW64
+          # This is needed for x86 V8 builds
+          $debuggerDir = "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x86"
+          New-Item -ItemType Directory -Force -Path $debuggerDir | Out-Null
+
+          # Copy required DLLs from SysWOW64 (32-bit system DLLs)
+          Copy-Item "C:\Windows\SysWOW64\dbghelp.dll" "$debuggerDir\dbghelp.dll" -Force
+          Copy-Item "C:\Windows\SysWOW64\dbgcore.dll" "$debuggerDir\dbgcore.dll" -Force -ErrorAction SilentlyContinue
+
+          Write-Host "Copied debugging DLLs to: $debuggerDir"
+          Get-ChildItem $debuggerDir
 
       - name: Setup depot_tools
         shell: cmd
