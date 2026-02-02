@@ -297,6 +297,12 @@ jobs:
   # ============================================================================
   # STANDALONE V8 BUILDS
   # ============================================================================
+  #
+  # NOTE: We build V8 monolithic from upstream V8 but use headers from Node.js
+  # source to ensure API compatibility. Node.js maintains a patched V8 fork
+  # with custom version numbers that don't map to upstream V8 tags.
+  #
+  # ============================================================================
 
   build-v8-linux:
     needs: resolve-version
@@ -307,6 +313,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential python3 git lsb-release
+
+      - name: Clone Node.js (for V8 headers)
+        run: |
+          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
 
       - name: Setup depot_tools
         run: |
@@ -322,7 +332,7 @@ jobs:
           git fetch origin
           git checkout "${{ needs.resolve-version.outputs.v8_version }}" 2>/dev/null || \
             git checkout "branch-heads/${{ needs.resolve-version.outputs.v8_branch }}" 2>/dev/null || \
-            echo "Using default branch"
+            echo "::warning::Using default V8 branch - headers from Node.js will ensure compatibility"
           gclient sync -D
 
       - name: Install V8 build dependencies
@@ -362,8 +372,9 @@ jobs:
           # Copy V8 static library
           cp v8-src/v8/out/release/obj/libv8_monolith.a "$OUTDIR/lib/"
 
-          # Copy V8 headers
-          cp -R v8-src/v8/include/* "$OUTDIR/include/"
+          # IMPORTANT: Copy V8 headers from Node.js source, NOT from standalone V8
+          # This ensures the headers match the V8 version that Node.js uses
+          cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
 
           # Create tarball
           tar -czvf "v8-v${V8_VERSION}-node${VERSION}-linux-x64.tar.gz" "$OUTDIR"
@@ -379,6 +390,10 @@ jobs:
     if: needs.resolve-version.outputs.skip_v8 != 'true'
     runs-on: macos-14
     steps:
+      - name: Clone Node.js (for V8 headers)
+        run: |
+          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
+
       - name: Setup depot_tools
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
@@ -392,7 +407,7 @@ jobs:
           git fetch origin
           git checkout "${{ needs.resolve-version.outputs.v8_version }}" 2>/dev/null || \
             git checkout "branch-heads/${{ needs.resolve-version.outputs.v8_branch }}" 2>/dev/null || \
-            echo "Using default branch"
+            echo "::warning::Using default V8 branch - headers from Node.js will ensure compatibility"
           gclient sync -D
 
       - name: Configure V8 build
@@ -427,8 +442,9 @@ jobs:
           # Copy V8 static library
           cp v8-src/v8/out/release/obj/libv8_monolith.a "$OUTDIR/lib/"
 
-          # Copy V8 headers
-          cp -R v8-src/v8/include/* "$OUTDIR/include/"
+          # IMPORTANT: Copy V8 headers from Node.js source, NOT from standalone V8
+          # This ensures the headers match the V8 version that Node.js uses
+          cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
 
           # Create tarball
           tar -czvf "v8-v${V8_VERSION}-node${VERSION}-darwin-arm64.tar.gz" "$OUTDIR"
@@ -450,6 +466,10 @@ jobs:
       matrix:
         arch: [x64, x86]
     steps:
+      - name: Clone Node.js (for V8 headers)
+        run: |
+          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
+
       - name: Find Visual Studio installation
         id: vs
         shell: pwsh
@@ -495,7 +515,7 @@ jobs:
           call fetch v8
           cd v8
           git fetch origin
-          git checkout "${{ needs.resolve-version.outputs.v8_version }}" 2>nul || git checkout "branch-heads/${{ needs.resolve-version.outputs.v8_branch }}" 2>nul || echo Using default branch
+          git checkout "${{ needs.resolve-version.outputs.v8_version }}" 2>nul || git checkout "branch-heads/${{ needs.resolve-version.outputs.v8_branch }}" 2>nul || echo Using default branch - headers from Node.js will ensure compatibility
           call gclient sync -D
 
       - name: Configure V8 build
@@ -524,8 +544,9 @@ jobs:
           # Copy V8 static library
           Copy-Item "v8-src/v8/out/release/obj/v8_monolith.lib" "$outDir/lib/"
 
-          # Copy V8 headers
-          Copy-Item -Recurse "v8-src/v8/include/*" "$outDir/include/"
+          # IMPORTANT: Copy V8 headers from Node.js source, NOT from standalone V8
+          # This ensures the headers match the V8 version that Node.js uses
+          Copy-Item -Recurse "node-src/deps/v8/include/*" "$outDir/include/"
 
           # Create zip
           Compress-Archive -Path "$outDir" -DestinationPath "v8-v${V8Version}-node${Version}-win-$arch.zip"
@@ -636,15 +657,20 @@ jobs:
 
           ### All Platforms
           - libv8_monolith (static library containing the V8 JavaScript engine)
-          - V8 headers
+          - V8 headers (from Node.js source for API compatibility)
 
           ## Build Configuration
           \`\`\`
           v8_monolithic=true
           v8_use_external_startup_data=false
           v8_enable_i18n_support=true
-          v8_enable_sandbox=true
+          v8_enable_sandbox=true (Linux/macOS), false (Windows)
           \`\`\`
+
+          ## Important Note
+          The V8 headers are extracted from Node.js source (not upstream V8) to ensure
+          API compatibility with the V8 version that Node.js uses. This is necessary
+          because Node.js maintains a patched V8 fork with custom version numbers.
 
           ## Usage
           Use these libraries for **client-side** embedding where you only need JavaScript execution without Node.js APIs.
