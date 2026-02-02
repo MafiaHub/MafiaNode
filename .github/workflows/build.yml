@@ -506,6 +506,8 @@ jobs:
       - name: Fetch V8
         shell: cmd
         run: |
+          set DEPOT_TOOLS_WIN_TOOLCHAIN=0
+          set PATH=C:\depot_tools;%PATH%
           mkdir v8-src
           cd v8-src
           call fetch v8
@@ -513,16 +515,20 @@ jobs:
           git fetch origin
           git checkout "${{ needs.resolve-version.outputs.v8_version }}" 2>nul || git checkout "branch-heads/${{ needs.resolve-version.outputs.v8_branch }}" 2>nul || echo Using default branch - headers from Node.js will ensure compatibility
           call gclient sync -D
+          call gclient runhooks
 
       - name: Configure V8 build
         shell: cmd
         run: |
+          set DEPOT_TOOLS_WIN_TOOLCHAIN=0
+          set PATH=C:\depot_tools;%PATH%
           cd v8-src\v8
-          gn gen out/release --args="is_debug=false is_clang=true use_custom_libcxx=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=false target_cpu=\"${{ matrix.arch }}\""
+          call gn gen out/release --args="is_debug=false is_clang=true use_custom_libcxx=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=false target_cpu=\"${{ matrix.arch }}\""
 
       - name: Build V8
         shell: cmd
         run: |
+          set PATH=C:\depot_tools;%PATH%
           cd v8-src\v8
           ninja -C out/release v8_monolith
 
