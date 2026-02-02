@@ -211,9 +211,7 @@ jobs:
           OUTDIR="libnode-v$VERSION-darwin-arm64"
 
           mkdir -p "$OUTDIR/lib"
-          mkdir -p "$OUTDIR/include/node"
-          mkdir -p "$OUTDIR/include/v8"
-          mkdir -p "$OUTDIR/include/uv"
+          mkdir -p "$OUTDIR/include"
           mkdir -p "$OUTDIR/bin"
 
           # Copy libraries (dylib is versioned, e.g., libnode.127.dylib)
@@ -221,10 +219,10 @@ jobs:
           # Create unversioned symlink for convenience
           cd "$OUTDIR/lib" && ln -sf libnode.*.dylib libnode.dylib && cd -
 
-          # Copy headers
-          cp node-src/src/*.h "$OUTDIR/include/node/"
-          cp -R node-src/deps/v8/include/* "$OUTDIR/include/v8/"
-          cp -R node-src/deps/uv/include/* "$OUTDIR/include/uv/"
+          # Copy headers (flat structure, matching Windows)
+          cp node-src/src/*.h "$OUTDIR/include/"
+          cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
+          cp -R node-src/deps/uv/include/* "$OUTDIR/include/"
 
           # Copy node executable
           cp node-src/out/Release/node "$OUTDIR/bin/"
@@ -264,9 +262,7 @@ jobs:
           OUTDIR="libnode-v$VERSION-linux-x64"
 
           mkdir -p "$OUTDIR/lib"
-          mkdir -p "$OUTDIR/include/node"
-          mkdir -p "$OUTDIR/include/v8"
-          mkdir -p "$OUTDIR/include/uv"
+          mkdir -p "$OUTDIR/include"
           mkdir -p "$OUTDIR/bin"
 
           # Copy shared library
@@ -277,10 +273,10 @@ jobs:
           find node-src/out/Release -name "v8_libbase.a" -exec cp {} "$OUTDIR/lib/" \;
           find node-src/out/Release -name "v8_libplatform.a" -exec cp {} "$OUTDIR/lib/" \;
 
-          # Copy headers
-          cp node-src/src/*.h "$OUTDIR/include/node/"
-          cp -R node-src/deps/v8/include/* "$OUTDIR/include/v8/"
-          cp -R node-src/deps/uv/include/* "$OUTDIR/include/uv/"
+          # Copy headers (flat structure, matching Windows)
+          cp node-src/src/*.h "$OUTDIR/include/"
+          cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
+          cp -R node-src/deps/uv/include/* "$OUTDIR/include/"
 
           # Copy node executable
           cp node-src/out/Release/node "$OUTDIR/bin/"
@@ -522,7 +518,7 @@ jobs:
         shell: cmd
         run: |
           cd v8-src\v8
-          gn gen out/release --args="is_debug=false is_clang=true clang_use_chrome_plugins=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=false target_cpu=\"${{ matrix.arch }}\""
+          gn gen out/release --args="is_debug=false is_clang=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=false target_cpu=\"${{ matrix.arch }}\""
 
       - name: Build V8
         shell: cmd
@@ -665,6 +661,7 @@ jobs:
           v8_use_external_startup_data=false
           v8_enable_i18n_support=true
           v8_enable_sandbox=true (Linux/macOS), false (Windows)
+          is_clang=false (Windows - MSVC ABI compatible)
           \`\`\`
 
           ## Important Note
