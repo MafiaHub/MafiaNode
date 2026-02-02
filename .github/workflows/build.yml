@@ -518,7 +518,7 @@ jobs:
         shell: cmd
         run: |
           cd v8-src\v8
-          gn gen out/release --args="is_debug=false is_clang=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=false target_cpu=\"${{ matrix.arch }}\""
+          gn gen out/release --args="is_debug=false is_clang=true use_custom_libcxx=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=false target_cpu=\"${{ matrix.arch }}\""
 
       - name: Build V8
         shell: cmd
@@ -661,7 +661,7 @@ jobs:
           v8_use_external_startup_data=false
           v8_enable_i18n_support=true
           v8_enable_sandbox=true (Linux/macOS), false (Windows)
-          is_clang=false (Windows - MSVC ABI compatible)
+          use_custom_libcxx=false (Windows - uses MSVC STL for ABI compatibility)
           \`\`\`
 
           ## Important Note
