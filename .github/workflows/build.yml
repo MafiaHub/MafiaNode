@@ -1,4 +1,4 @@
-name: Build libnode and V8
+name: Build libnode
 
 on:
   push:
@@ -9,14 +9,6 @@ on:
         description: 'Node.js version (e.g., 22.13.0). Leave empty for latest LTS.'
         required: false
         default: ''
-      build_v8:
-        description: 'Build standalone V8 (slow, ~30-60 min per platform)'
-        required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
       force_rebuild:
         description: 'Force rebuild even if release exists'
         required: false
@@ -38,14 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.resolve.outputs.version }}
-      v8_version: ${{ steps.resolve.outputs.v8_version }}
-      v8_branch: ${{ steps.resolve.outputs.v8_branch }}
-      libnode_exists: ${{ steps.check_releases.outputs.libnode_exists }}
-      v8_exists: ${{ steps.check_releases.outputs.v8_exists }}
-      skip_libnode: ${{ steps.decide.outputs.skip_libnode }}
-      skip_v8: ${{ steps.decide.outputs.skip_v8 }}
+      skip_build: ${{ steps.decide.outputs.skip_build }}
     steps:
-      - name: Resolve Node.js and V8 versions
+      - name: Resolve Node.js version
         id: resolve
         run: |
           if [ -n "${{ github.event.inputs.node_version }}" ]; then
@@ -56,83 +43,38 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Resolved Node.js version: $VERSION"
 
-          # Extract V8 version from Node.js source
-          V8_HEADER=$(curl -s "https://raw.githubusercontent.com/nodejs/node/v${VERSION}/deps/v8/include/v8-version.h")
-
-          MAJOR=$(echo "$V8_HEADER" | grep "#define V8_MAJOR_VERSION" | awk '{print $3}')
-          MINOR=$(echo "$V8_HEADER" | grep "#define V8_MINOR_VERSION" | awk '{print $3}')
-          BUILD=$(echo "$V8_HEADER" | grep "#define V8_BUILD_NUMBER" | awk '{print $3}')
-          PATCH=$(echo "$V8_HEADER" | grep "#define V8_PATCH_LEVEL" | awk '{print $3}')
-
-          V8_VERSION="${MAJOR}.${MINOR}.${BUILD}.${PATCH}"
-          V8_BRANCH="${MAJOR}.${MINOR}"
-          echo "v8_version=$V8_VERSION" >> $GITHUB_OUTPUT
-          echo "v8_branch=$V8_BRANCH" >> $GITHUB_OUTPUT
-          echo "Node.js $VERSION uses V8 $V8_VERSION (branch $V8_BRANCH)"
-
-      - name: Check if releases already exist
-        id: check_releases
+      - name: Check if release already exists
+        id: check_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NODE_VERSION="${{ steps.resolve.outputs.version }}"
-          V8_VERSION="${{ steps.resolve.outputs.v8_version }}"
+          VERSION="${{ steps.resolve.outputs.version }}"
+          TAG="libnode-v${VERSION}"
 
-          LIBNODE_TAG="libnode-v${NODE_VERSION}"
-          V8_TAG="v8-v${V8_VERSION}-node${NODE_VERSION}"
-
-          # Check libnode release
-          if gh release view "$LIBNODE_TAG" --repo ${{ github.repository }} > /dev/null 2>&1; then
-            echo "libnode_exists=true" >> $GITHUB_OUTPUT
-            echo "::notice::Release $LIBNODE_TAG already exists"
+          if gh release view "$TAG" --repo ${{ github.repository }} > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "::notice::Release $TAG already exists"
           else
-            echo "libnode_exists=false" >> $GITHUB_OUTPUT
-            echo "::notice::Release $LIBNODE_TAG does not exist, will build"
-          fi
-
-          # Check V8 release
-          if gh release view "$V8_TAG" --repo ${{ github.repository }} > /dev/null 2>&1; then
-            echo "v8_exists=true" >> $GITHUB_OUTPUT
-            echo "::notice::Release $V8_TAG already exists"
-          else
-            echo "v8_exists=false" >> $GITHUB_OUTPUT
-            echo "::notice::Release $V8_TAG does not exist, will build"
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "::notice::Release $TAG does not exist, will build"
           fi
 
       - name: Decide what to build
         id: decide
         run: |
           FORCE="${{ github.event.inputs.force_rebuild }}"
-          LIBNODE_EXISTS="${{ steps.check_releases.outputs.libnode_exists }}"
-          V8_EXISTS="${{ steps.check_releases.outputs.v8_exists }}"
-          BUILD_V8="${{ github.event.inputs.build_v8 }}"
+          EXISTS="${{ steps.check_release.outputs.exists }}"
 
-          # Skip libnode if exists and not forcing
-          if [ "$LIBNODE_EXISTS" == "true" ] && [ "$FORCE" != "true" ]; then
-            echo "skip_libnode=true" >> $GITHUB_OUTPUT
-            echo "::warning::Skipping libnode build - release already exists"
+          if [ "$EXISTS" == "true" ] && [ "$FORCE" != "true" ]; then
+            echo "skip_build=true" >> $GITHUB_OUTPUT
+            echo "::warning::Skipping build - release already exists"
           else
-            echo "skip_libnode=false" >> $GITHUB_OUTPUT
+            echo "skip_build=false" >> $GITHUB_OUTPUT
           fi
-
-          # Skip V8 if exists and not forcing, or if build_v8 is false
-          if [ "$BUILD_V8" == "false" ]; then
-            echo "skip_v8=true" >> $GITHUB_OUTPUT
-            echo "::notice::Skipping V8 build - disabled by user"
-          elif [ "$V8_EXISTS" == "true" ] && [ "$FORCE" != "true" ]; then
-            echo "skip_v8=true" >> $GITHUB_OUTPUT
-            echo "::warning::Skipping V8 build - release already exists"
-          else
-            echo "skip_v8=false" >> $GITHUB_OUTPUT
-          fi
-
-  # ============================================================================
-  # LIBNODE BUILDS
-  # ============================================================================
 
   build-windows:
     needs: resolve-version
-    if: needs.resolve-version.outputs.skip_libnode != 'true'
+    if: needs.resolve-version.outputs.skip_build != 'true'
     runs-on: windows-latest
     strategy:
       matrix:
@@ -173,7 +115,7 @@ jobs:
           Copy-Item "node-src/out/Release/lib/v8_libbase.lib" "$outDir/lib/"
           Copy-Item "node-src/out/Release/lib/v8_libplatform.lib" "$outDir/lib/"
 
-          # Copy headers
+          # Copy headers (flat structure)
           Copy-Item -Recurse "node-src/src/*.h" "$outDir/include/"
           Copy-Item -Recurse "node-src/deps/v8/include/*" "$outDir/include/"
           Copy-Item -Recurse "node-src/deps/uv/include/*" "$outDir/include/"
@@ -192,7 +134,7 @@ jobs:
 
   build-macos:
     needs: resolve-version
-    if: needs.resolve-version.outputs.skip_libnode != 'true'
+    if: needs.resolve-version.outputs.skip_build != 'true'
     runs-on: macos-14
     steps:
       - name: Clone Node.js
@@ -219,7 +161,7 @@ jobs:
           # Create unversioned symlink for convenience
           cd "$OUTDIR/lib" && ln -sf libnode.*.dylib libnode.dylib && cd -
 
-          # Copy headers (flat structure, matching Windows)
+          # Copy headers (flat structure)
           cp node-src/src/*.h "$OUTDIR/include/"
           cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
           cp -R node-src/deps/uv/include/* "$OUTDIR/include/"
@@ -238,7 +180,7 @@ jobs:
 
   build-linux:
     needs: resolve-version
-    if: needs.resolve-version.outputs.skip_libnode != 'true'
+    if: needs.resolve-version.outputs.skip_build != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Install dependencies
@@ -273,7 +215,7 @@ jobs:
           find node-src/out/Release -name "v8_libbase.a" -exec cp {} "$OUTDIR/lib/" \;
           find node-src/out/Release -name "v8_libplatform.a" -exec cp {} "$OUTDIR/lib/" \;
 
-          # Copy headers (flat structure, matching Windows)
+          # Copy headers (flat structure)
           cp node-src/src/*.h "$OUTDIR/include/"
           cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
           cp -R node-src/deps/uv/include/* "$OUTDIR/include/"
@@ -290,284 +232,11 @@ jobs:
           name: libnode-linux-x64
           path: libnode-v${{ needs.resolve-version.outputs.version }}-linux-x64.tar.gz
 
-  # ============================================================================
-  # STANDALONE V8 BUILDS
-  # ============================================================================
-  #
-  # NOTE: We build V8 monolithic from upstream V8 but use headers from Node.js
-  # source to ensure API compatibility. Node.js maintains a patched V8 fork
-  # with custom version numbers that don't map to upstream V8 tags.
-  #
-  # ============================================================================
-
-  build-v8-linux:
-    needs: resolve-version
-    if: needs.resolve-version.outputs.skip_v8 != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential python3 git lsb-release
-
-      - name: Clone Node.js (for V8 headers)
-        run: |
-          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
-
-      - name: Setup depot_tools
-        run: |
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
-          echo "$HOME/depot_tools" >> $GITHUB_PATH
-
-      - name: Fetch V8
-        run: |
-          mkdir v8-src && cd v8-src
-          fetch v8
-          cd v8
-          # Try exact version tag first, fall back to branch-heads
-          git fetch origin
-          git checkout "${{ needs.resolve-version.outputs.v8_version }}" 2>/dev/null || \
-            git checkout "branch-heads/${{ needs.resolve-version.outputs.v8_branch }}" 2>/dev/null || \
-            echo "::warning::Using default V8 branch - headers from Node.js will ensure compatibility"
-          gclient sync -D
-
-      - name: Install V8 build dependencies
-        run: |
-          cd v8-src/v8
-          ./build/install-build-deps.sh --no-prompt || true
-
-      - name: Configure V8 build
-        run: |
-          cd v8-src/v8
-          gn gen out/release --args='
-            is_debug=false
-            is_component_build=false
-            v8_monolithic=true
-            v8_use_external_startup_data=false
-            v8_enable_i18n_support=true
-            use_custom_libcxx=false
-            treat_warnings_as_errors=false
-            v8_enable_sandbox=true
-            target_cpu="x64"
-          '
-
-      - name: Build V8
-        run: |
-          cd v8-src/v8
-          ninja -C out/release v8_monolith
-
-      - name: Prepare artifacts
-        run: |
-          VERSION="${{ needs.resolve-version.outputs.version }}"
-          V8_VERSION="${{ needs.resolve-version.outputs.v8_version }}"
-          OUTDIR="v8-v${V8_VERSION}-node${VERSION}-linux-x64"
-
-          mkdir -p "$OUTDIR/lib"
-          mkdir -p "$OUTDIR/include"
-
-          # Copy V8 static library
-          cp v8-src/v8/out/release/obj/libv8_monolith.a "$OUTDIR/lib/"
-
-          # IMPORTANT: Copy V8 headers from Node.js source, NOT from standalone V8
-          # This ensures the headers match the V8 version that Node.js uses
-          cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
-
-          # Create tarball
-          tar -czvf "v8-v${V8_VERSION}-node${VERSION}-linux-x64.tar.gz" "$OUTDIR"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: v8-linux-x64
-          path: v8-v${{ needs.resolve-version.outputs.v8_version }}-node${{ needs.resolve-version.outputs.version }}-linux-x64.tar.gz
-
-  build-v8-macos:
-    needs: resolve-version
-    if: needs.resolve-version.outputs.skip_v8 != 'true'
-    runs-on: macos-14
-    steps:
-      - name: Clone Node.js (for V8 headers)
-        run: |
-          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
-
-      - name: Setup depot_tools
-        run: |
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
-          echo "$HOME/depot_tools" >> $GITHUB_PATH
-
-      - name: Fetch V8
-        run: |
-          mkdir v8-src && cd v8-src
-          fetch v8
-          cd v8
-          git fetch origin
-          git checkout "${{ needs.resolve-version.outputs.v8_version }}" 2>/dev/null || \
-            git checkout "branch-heads/${{ needs.resolve-version.outputs.v8_branch }}" 2>/dev/null || \
-            echo "::warning::Using default V8 branch - headers from Node.js will ensure compatibility"
-          gclient sync -D
-
-      - name: Configure V8 build
-        run: |
-          cd v8-src/v8
-          gn gen out/release --args='
-            is_debug=false
-            is_component_build=false
-            v8_monolithic=true
-            v8_use_external_startup_data=false
-            v8_enable_i18n_support=true
-            use_custom_libcxx=false
-            treat_warnings_as_errors=false
-            v8_enable_sandbox=true
-            target_cpu="arm64"
-          '
-
-      - name: Build V8
-        run: |
-          cd v8-src/v8
-          ninja -C out/release v8_monolith
-
-      - name: Prepare artifacts
-        run: |
-          VERSION="${{ needs.resolve-version.outputs.version }}"
-          V8_VERSION="${{ needs.resolve-version.outputs.v8_version }}"
-          OUTDIR="v8-v${V8_VERSION}-node${VERSION}-darwin-arm64"
-
-          mkdir -p "$OUTDIR/lib"
-          mkdir -p "$OUTDIR/include"
-
-          # Copy V8 static library
-          cp v8-src/v8/out/release/obj/libv8_monolith.a "$OUTDIR/lib/"
-
-          # IMPORTANT: Copy V8 headers from Node.js source, NOT from standalone V8
-          # This ensures the headers match the V8 version that Node.js uses
-          cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
-
-          # Create tarball
-          tar -czvf "v8-v${V8_VERSION}-node${VERSION}-darwin-arm64.tar.gz" "$OUTDIR"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: v8-darwin-arm64
-          path: v8-v${{ needs.resolve-version.outputs.v8_version }}-node${{ needs.resolve-version.outputs.version }}-darwin-arm64.tar.gz
-
-  build-v8-windows:
-    needs: resolve-version
-    if: needs.resolve-version.outputs.skip_v8 != 'true'
-    runs-on: windows-latest
-    env:
-      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
-      GYP_MSVS_VERSION: 2022
-    strategy:
-      matrix:
-        arch: [x64, x86]
-    steps:
-      - name: Clone Node.js (for V8 headers)
-        run: |
-          git clone --depth 1 --branch v${{ needs.resolve-version.outputs.version }} https://github.com/nodejs/node.git node-src
-
-      - name: Find Visual Studio installation
-        id: vs
-        shell: pwsh
-        run: |
-          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          echo "VS_PATH=$vsPath" >> $env:GITHUB_ENV
-          echo "vs2022_install=$vsPath" >> $env:GITHUB_ENV
-          echo "Found Visual Studio at: $vsPath"
-
-      - name: Install Windows SDK Debugging Tools
-        if: matrix.arch == 'x86'
-        shell: pwsh
-        run: |
-          # Create the debugger directory and copy dbghelp.dll from SysWOW64
-          # This is needed for x86 V8 builds
-          $debuggerDir = "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x86"
-          New-Item -ItemType Directory -Force -Path $debuggerDir | Out-Null
-
-          # Copy required DLLs from SysWOW64 (32-bit system DLLs)
-          Copy-Item "C:\Windows\SysWOW64\dbghelp.dll" "$debuggerDir\dbghelp.dll" -Force
-          Copy-Item "C:\Windows\SysWOW64\dbgcore.dll" "$debuggerDir\dbgcore.dll" -Force -ErrorAction SilentlyContinue
-
-          Write-Host "Copied debugging DLLs to: $debuggerDir"
-          Get-ChildItem $debuggerDir
-
-      - name: Setup depot_tools
-        shell: cmd
-        run: |
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
-          echo C:\depot_tools>> %GITHUB_PATH%
-
-      - name: Configure git
-        shell: cmd
-        run: |
-          git config --global core.autocrlf false
-          git config --global core.filemode false
-
-      - name: Fetch V8
-        shell: cmd
-        run: |
-          set DEPOT_TOOLS_WIN_TOOLCHAIN=0
-          set PATH=C:\depot_tools;%PATH%
-          mkdir v8-src
-          cd v8-src
-          call fetch v8
-          cd v8
-          git fetch origin
-          git checkout "${{ needs.resolve-version.outputs.v8_version }}" 2>nul || git checkout "branch-heads/${{ needs.resolve-version.outputs.v8_branch }}" 2>nul || echo Using default branch - headers from Node.js will ensure compatibility
-          call gclient sync -D
-          call gclient runhooks
-
-      - name: Configure V8 build
-        shell: cmd
-        run: |
-          set DEPOT_TOOLS_WIN_TOOLCHAIN=0
-          set PATH=C:\depot_tools;%PATH%
-          cd v8-src\v8
-          call gn gen out/release --args="is_debug=false is_clang=true use_custom_libcxx=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false v8_enable_i18n_support=true treat_warnings_as_errors=false v8_enable_sandbox=false target_cpu=\"${{ matrix.arch }}\""
-
-      - name: Build V8
-        shell: cmd
-        run: |
-          set PATH=C:\depot_tools;%PATH%
-          cd v8-src\v8
-          ninja -C out/release v8_monolith
-
-      - name: Prepare artifacts
-        shell: pwsh
-        run: |
-          $Version = "${{ needs.resolve-version.outputs.version }}"
-          $V8Version = "${{ needs.resolve-version.outputs.v8_version }}"
-          $arch = "${{ matrix.arch }}"
-          $outDir = "v8-v${V8Version}-node${Version}-win-$arch"
-
-          New-Item -ItemType Directory -Force -Path "$outDir/lib"
-          New-Item -ItemType Directory -Force -Path "$outDir/include"
-
-          # Copy V8 static library
-          Copy-Item "v8-src/v8/out/release/obj/v8_monolith.lib" "$outDir/lib/"
-
-          # IMPORTANT: Copy V8 headers from Node.js source, NOT from standalone V8
-          # This ensures the headers match the V8 version that Node.js uses
-          Copy-Item -Recurse "node-src/deps/v8/include/*" "$outDir/include/"
-
-          # Create zip
-          Compress-Archive -Path "$outDir" -DestinationPath "v8-v${V8Version}-node${Version}-win-$arch.zip"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: v8-win-${{ matrix.arch }}
-          path: v8-v${{ needs.resolve-version.outputs.v8_version }}-node${{ needs.resolve-version.outputs.version }}-win-${{ matrix.arch }}.zip
-
-  # ============================================================================
-  # RELEASES
-  # ============================================================================
-
-  release-libnode:
+  release:
     needs: [resolve-version, build-windows, build-macos, build-linux]
     if: |
       always() &&
-      needs.resolve-version.outputs.skip_libnode != 'true' &&
+      needs.resolve-version.outputs.skip_build != 'true' &&
       needs.build-windows.result == 'success' &&
       needs.build-macos.result == 'success' &&
       needs.build-linux.result == 'success'
@@ -575,20 +244,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download libnode artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: libnode-*
           path: artifacts
 
-      - name: Create libnode Release
+      - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ needs.resolve-version.outputs.version }}"
           TAG="libnode-v${VERSION}"
 
-          # Collect libnode artifacts
           FILES=$(find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \))
 
           gh release create "$TAG" \
@@ -615,68 +283,5 @@ jobs:
           All archives include Node.js, V8, and libuv headers.
 
           ## Usage
-          Use these libraries for **server-side** embedding where you need the full Node.js runtime (require(), npm modules, async I/O, etc.)." \
-            $FILES
-
-  release-v8:
-    needs: [resolve-version, build-v8-linux, build-v8-macos, build-v8-windows]
-    if: |
-      always() &&
-      needs.resolve-version.outputs.skip_v8 != 'true' &&
-      (needs.build-v8-linux.result == 'success' || needs.build-v8-linux.result == 'skipped') &&
-      (needs.build-v8-macos.result == 'success' || needs.build-v8-macos.result == 'skipped') &&
-      (needs.build-v8-windows.result == 'success' || needs.build-v8-windows.result == 'skipped') &&
-      (needs.build-v8-linux.result == 'success' || needs.build-v8-macos.result == 'success' || needs.build-v8-windows.result == 'success')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download V8 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: v8-*
-          path: artifacts
-
-      - name: Create V8 Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION="${{ needs.resolve-version.outputs.version }}"
-          V8_VERSION="${{ needs.resolve-version.outputs.v8_version }}"
-          TAG="v8-v${V8_VERSION}-node${VERSION}"
-
-          # Collect V8 artifacts
-          FILES=$(find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \))
-
-          gh release create "$TAG" \
-            --repo ${{ github.repository }} \
-            --title "V8 v${V8_VERSION} (Node ${VERSION})" \
-            --notes "Standalone V8 ${V8_VERSION} builds for embedding in C++ projects.
-
-          This V8 version matches the V8 bundled in Node.js ${VERSION}.
-
-          ## Contents
-
-          ### All Platforms
-          - libv8_monolith (static library containing the V8 JavaScript engine)
-          - V8 headers (from Node.js source for API compatibility)
-
-          ## Build Configuration
-          \`\`\`
-          v8_monolithic=true
-          v8_use_external_startup_data=false
-          v8_enable_i18n_support=true
-          v8_enable_sandbox=true (Linux/macOS), false (Windows)
-          use_custom_libcxx=false (Windows - uses MSVC STL for ABI compatibility)
-          \`\`\`
-
-          ## Important Note
-          The V8 headers are extracted from Node.js source (not upstream V8) to ensure
-          API compatibility with the V8 version that Node.js uses. This is necessary
-          because Node.js maintains a patched V8 fork with custom version numbers.
-
-          ## Usage
-          Use these libraries for **client-side** embedding where you only need JavaScript execution without Node.js APIs.
-
-          Link against \`libv8_monolith\` and include the V8 headers. See [V8 Embedder's Guide](https://v8.dev/docs/embed) for details." \
+          Link against libnode and include the headers for full Node.js runtime embedding (require(), npm modules, async I/O, etc.)." \
             $FILES
