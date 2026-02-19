@@ -277,6 +277,10 @@ jobs:
 
           FILES=$(find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \))
 
+          # Delete existing release if present (force rebuild case)
+          gh release delete "$TAG" --repo ${{ github.repository }} --yes 2>/dev/null || true
+          git push --delete origin "$TAG" 2>/dev/null || true
+
           gh release create "$TAG" \
             --repo ${{ github.repository }} \
             --title "libnode v${VERSION}" \
