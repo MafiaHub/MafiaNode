@@ -173,8 +173,14 @@ jobs:
           Copy-Item "node-src/out/Release/lib/v8_libbase.lib" "$outDir/lib/"
           Copy-Item "node-src/out/Release/lib/v8_libplatform.lib" "$outDir/lib/"
 
-          # Copy headers
+          # Copy headers (top-level + subdirectories needed by env.h)
           Copy-Item -Recurse "node-src/src/*.h" "$outDir/include/"
+          foreach ($subdir in @("permission", "inspector", "crypto", "tracing", "quic", "dataqueue", "large_pages")) {
+            if (Test-Path "node-src/src/$subdir") {
+              New-Item -ItemType Directory -Force -Path "$outDir/include/$subdir" | Out-Null
+              Copy-Item "node-src/src/$subdir/*.h" "$outDir/include/$subdir/"
+            }
+          }
           Copy-Item -Recurse "node-src/deps/v8/include/*" "$outDir/include/"
           Copy-Item -Recurse "node-src/deps/uv/include/*" "$outDir/include/"
 
@@ -219,8 +225,14 @@ jobs:
           # Create unversioned symlink for convenience
           cd "$OUTDIR/lib" && ln -sf libnode.*.dylib libnode.dylib && cd -
 
-          # Copy headers (flat structure, matching Windows)
+          # Copy headers (top-level + subdirectories needed by env.h)
           cp node-src/src/*.h "$OUTDIR/include/"
+          for subdir in permission inspector crypto tracing quic dataqueue large_pages; do
+            if [ -d "node-src/src/$subdir" ]; then
+              mkdir -p "$OUTDIR/include/$subdir"
+              cp node-src/src/$subdir/*.h "$OUTDIR/include/$subdir/"
+            fi
+          done
           cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
           cp -R node-src/deps/uv/include/* "$OUTDIR/include/"
 
@@ -273,8 +285,14 @@ jobs:
           find node-src/out/Release -name "v8_libbase.a" -exec cp {} "$OUTDIR/lib/" \;
           find node-src/out/Release -name "v8_libplatform.a" -exec cp {} "$OUTDIR/lib/" \;
 
-          # Copy headers (flat structure, matching Windows)
+          # Copy headers (top-level + subdirectories needed by env.h)
           cp node-src/src/*.h "$OUTDIR/include/"
+          for subdir in permission inspector crypto tracing quic dataqueue large_pages; do
+            if [ -d "node-src/src/$subdir" ]; then
+              mkdir -p "$OUTDIR/include/$subdir"
+              cp node-src/src/$subdir/*.h "$OUTDIR/include/$subdir/"
+            fi
+          done
           cp -R node-src/deps/v8/include/* "$OUTDIR/include/"
           cp -R node-src/deps/uv/include/* "$OUTDIR/include/"
 
