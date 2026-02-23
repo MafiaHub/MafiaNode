@@ -141,6 +141,10 @@ jobs:
           Copy-Item "node-src/out/Release/lib/libuv.lib" "$outDir/lib/"
           Copy-Item "node-src/out/Release/lib/v8_libbase.lib" "$outDir/lib/"
           Copy-Item "node-src/out/Release/lib/v8_libplatform.lib" "$outDir/lib/"
+          # Copy abseil library (required by v8_libbase in V8 13+/Node.js 25+)
+          if (Test-Path "node-src/out/Release/lib/v8_abseil.lib") {
+            Copy-Item "node-src/out/Release/lib/v8_abseil.lib" "$outDir/lib/"
+          }
 
           # Copy headers (top-level + all subdirectories containing .h files)
           Copy-Item -Recurse "node-src/src/*.h" "$outDir/include/"
@@ -256,6 +260,8 @@ jobs:
           find node-src/out/Release -name "libuv.a" -exec cp {} "$OUTDIR/lib/" \;
           find node-src/out/Release -name "v8_libbase.a" -exec cp {} "$OUTDIR/lib/" \;
           find node-src/out/Release -name "v8_libplatform.a" -exec cp {} "$OUTDIR/lib/" \;
+          # Copy abseil library (required by v8_libbase in V8 13+/Node.js 25+)
+          find node-src/out/Release -name "libv8_abseil.a" -exec cp {} "$OUTDIR/lib/" \; 2>/dev/null || true
 
           # Copy headers (top-level + all subdirectories containing .h files)
           cp node-src/src/*.h "$OUTDIR/include/"
@@ -322,7 +328,7 @@ jobs:
           ### Windows (x64)
           - libnode.dll / libnode.lib
           - libuv.lib
-          - v8_libbase.lib, v8_libplatform.lib
+          - v8_libbase.lib, v8_libplatform.lib, v8_abseil.lib
 
           ### macOS (arm64)
           - libnode.*.dylib (versioned)
@@ -331,7 +337,7 @@ jobs:
           ### Linux (x64)
           - libnode.so
           - libuv.a
-          - v8_libbase.a, v8_libplatform.a
+          - v8_libbase.a, v8_libplatform.a, libv8_abseil.a
 
           All archives include Node.js, V8, and libuv headers.
 
