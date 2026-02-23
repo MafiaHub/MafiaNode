@@ -98,7 +98,10 @@ jobs:
           Get-PSDrive C | Select-Object Used,Free
 
       - name: Install NASM
-        run: choco install nasm -y
+        shell: pwsh
+        run: |
+          choco install nasm --no-progress -y --timeout 300
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
 
       - name: Clone Node.js
         run: |
