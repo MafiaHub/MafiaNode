@@ -17,6 +17,14 @@ on:
         options:
           - 'false'
           - 'true'
+      include_x86:
+        description: 'Include Windows x86 build (not supported on Node >= 25)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -78,7 +86,9 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        arch: [x64, x86]
+        arch:
+          - x64
+        include: ${{ github.event.inputs.include_x86 == 'true' && fromJson('[{"arch":"x86"}]') || fromJson('[]') }}
     steps:
       - name: Free disk space
         shell: pwsh
@@ -112,11 +122,7 @@ jobs:
         run: |
           cd node-src
           set NUMBER_OF_PROCESSORS=2
-          if "${{ matrix.arch }}" == "x86" (
-            call vcbuild.bat release dll x86 full-icu
-          ) else (
-            call vcbuild.bat release dll x64 full-icu
-          )
+          call vcbuild.bat release dll ${{ matrix.arch }} full-icu
 
       - name: Prepare artifacts
         shell: pwsh
@@ -164,7 +170,7 @@ jobs:
   build-macos:
     needs: resolve-version
     if: needs.resolve-version.outputs.skip_build != 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Clone Node.js
         run: |
@@ -313,7 +319,7 @@ jobs:
 
           ## Contents
 
-          ### Windows (x64 & x86)
+          ### Windows (x64)
           - libnode.dll / libnode.lib
           - libuv.lib
           - v8_libbase.lib, v8_libplatform.lib
