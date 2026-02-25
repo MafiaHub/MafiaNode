@@ -287,22 +287,111 @@ jobs:
           name: libnode-linux-x64
           path: libnode-v${{ needs.resolve-version.outputs.version }}-linux-x64.tar.gz
 
+  build-v8-windows:
+    needs: resolve-version
+    if: needs.resolve-version.outputs.skip_build != 'true'
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64, x86]
+    env:
+      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
+    steps:
+      - name: Free disk space
+        shell: pwsh
+        run: |
+          $dirs = @(
+            "C:\hostedtoolcache\CodeQL",
+            "C:\hostedtoolcache\Java_Temurin-Hotspot_jdk",
+            "C:\hostedtoolcache\Ruby",
+            "C:\hostedtoolcache\go",
+            "C:\mingw64",
+            "C:\Program Files\dotnet\sdk",
+            "C:\Program Files\dotnet\shared"
+          )
+          foreach ($d in $dirs) {
+            if (Test-Path $d) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
+          }
+          Get-PSDrive C | Select-Object Used,Free
+
+      - name: Resolve V8 version from Node.js
+        id: v8ver
+        shell: bash
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          # Fetch v8-version.h from the Node.js tag on GitHub
+          HEADER=$(curl -s "https://raw.githubusercontent.com/nodejs/node/v${VERSION}/deps/v8/include/v8-version.h")
+          MAJOR=$(echo "$HEADER" | grep '#define V8_MAJOR_VERSION' | head -1 | awk '{print $3}')
+          MINOR=$(echo "$HEADER" | grep '#define V8_MINOR_VERSION' | head -1 | awk '{print $3}')
+          echo "v8_branch=${MAJOR}.${MINOR}" >> $GITHUB_OUTPUT
+          echo "Resolved V8 branch: ${MAJOR}.${MINOR}"
+
+      - name: Setup depot_tools
+        uses: newkdev/setup-depot-tools@v1.0.1
+
+      - name: Fetch V8
+        shell: cmd
+        run: |
+          mkdir v8-src && cd v8-src
+          fetch v8
+          cd v8
+          git checkout branch-heads/${{ steps.v8ver.outputs.v8_branch }}
+          gclient sync --with_branch_heads --no-history
+
+      - name: Build V8 monolith
+        shell: cmd
+        run: |
+          cd v8-src\v8
+          gn gen out\release --args="is_debug=false target_cpu=\"${{ matrix.arch }}\" is_clang=true is_component_build=false v8_monolithic=true v8_static_library=true v8_use_external_startup_data=false v8_enable_i18n_support=false v8_enable_sandbox=false use_custom_libcxx=false treat_warnings_as_errors=false symbol_level=0"
+          ninja -C out\release v8_monolith
+
+      - name: Prepare artifacts
+        shell: pwsh
+        run: |
+          $version = "${{ needs.resolve-version.outputs.version }}"
+          $arch = "${{ matrix.arch }}"
+          $outDir = "v8-v$version-win-$arch"
+
+          New-Item -ItemType Directory -Force -Path "$outDir/lib"
+          New-Item -ItemType Directory -Force -Path "$outDir/include"
+
+          # Copy monolith library
+          Copy-Item "v8-src/v8/out/release/obj/v8_monolith.lib" "$outDir/lib/"
+
+          # Copy V8 headers
+          Copy-Item -Recurse "v8-src/v8/include/*" "$outDir/include/"
+
+          Compress-Archive -Path "$outDir" -DestinationPath "v8-v$version-win-$arch.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v8-win-${{ matrix.arch }}
+          path: v8-v${{ needs.resolve-version.outputs.version }}-win-${{ matrix.arch }}.zip
+
   release:
-    needs: [resolve-version, build-windows, build-macos, build-linux]
+    needs: [resolve-version, build-windows, build-macos, build-linux, build-v8-windows]
     if: |
       always() &&
       needs.resolve-version.outputs.skip_build != 'true' &&
       needs.build-windows.result == 'success' &&
       needs.build-macos.result == 'success' &&
-      needs.build-linux.result == 'success'
+      needs.build-linux.result == 'success' &&
+      needs.build-v8-windows.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download artifacts
+      - name: Download libnode artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: libnode-*
+          path: artifacts
+
+      - name: Download V8 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: v8-*
           path: artifacts
 
       - name: Create Release
@@ -323,7 +412,7 @@ jobs:
             --title "libnode v${VERSION}" \
             --notes "Pre-built Node.js ${VERSION} libraries for embedding in C++ projects.
 
-          ## Contents
+          ## libnode (Node.js shared library)
 
           ### Windows (x64)
           - libnode.dll / libnode.lib
@@ -339,8 +428,19 @@ jobs:
           - libuv.a
           - v8_libbase.a, v8_libplatform.a, libabseil.a
 
-          All archives include Node.js, V8, and libuv headers.
+          All libnode archives include Node.js, V8, and libuv headers.
+
+          ## Standalone V8 (monolithic static library)
+
+          ### Windows (x64)
+          - v8_monolith.lib (x64)
+
+          ### Windows (x86)
+          - v8_monolith.lib (x86)
+
+          V8 archives include V8 headers. Built without ICU for a smaller binary.
 
           ## Usage
-          Link against libnode and include the headers for full Node.js runtime embedding (require(), npm modules, async I/O, etc.)." \
+          - **libnode**: Link against libnode for full Node.js runtime embedding (require(), npm modules, async I/O, etc.).
+          - **Standalone V8**: Link against v8_monolith for lightweight JavaScript execution without Node.js APIs." \
             $FILES
