@@ -341,6 +341,14 @@ jobs:
           cd ..
           call gclient sync --no-history || exit /b 1
 
+      - name: Detect Visual Studio installation
+        id: vsdetect
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Write-Host "Visual Studio path: $vsPath"
+          echo "vs_path=$vsPath" >> $env:GITHUB_OUTPUT
+
       - name: Patch V8 build to use dynamic CRT (/MD)
         shell: pwsh
         run: |
@@ -350,6 +358,8 @@ jobs:
 
       - name: Build V8 monolith
         shell: cmd
+        env:
+          GYP_MSVS_OVERRIDE_PATH: ${{ steps.vsdetect.outputs.vs_path }}
         run: |
           cd v8-src\v8 || exit /b 1
           mkdir out\release
@@ -365,8 +375,7 @@ jobs:
           echo v8_enable_pointer_compression = false
           echo use_custom_libcxx = false
           echo treat_warnings_as_errors = false
-          echo symbol_level = 0
-          echo extra_cflags = ["/MD"]) > out\release\args.gn
+          echo symbol_level = 0) > out\release\args.gn
           echo === args.gn ===
           type out\release\args.gn
           echo === gn gen ===
