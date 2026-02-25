@@ -358,7 +358,8 @@ jobs:
           echo v8_enable_pointer_compression = false
           echo use_custom_libcxx = false
           echo treat_warnings_as_errors = false
-          echo symbol_level = 0) > out\release\args.gn
+          echo symbol_level = 0
+          echo extra_cflags = ["/MD"]) > out\release\args.gn
           echo === args.gn ===
           type out\release\args.gn
           echo === gn gen ===
