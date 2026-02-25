@@ -332,46 +332,41 @@ jobs:
       - name: Fetch V8
         shell: cmd
         run: |
-          mkdir v8-src && cd v8-src
-          fetch --no-history v8
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          cd v8
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          git fetch origin branch-heads/${{ steps.v8ver.outputs.v8_branch }}
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          git checkout FETCH_HEAD
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          gclient sync --no-history
-          if %errorlevel% neq 0 exit /b %errorlevel%
-
-      - name: Generate GN args
-        shell: pwsh
-        run: |
-          $argsContent = @"
-          is_debug = false
-          target_cpu = "${{ matrix.arch }}"
-          is_clang = true
-          is_component_build = false
-          v8_monolithic = true
-          v8_static_library = true
-          v8_use_external_startup_data = false
-          v8_enable_i18n_support = false
-          v8_enable_sandbox = false
-          use_custom_libcxx = false
-          treat_warnings_as_errors = false
-          symbol_level = 0
-          "@
-          New-Item -ItemType Directory -Force -Path "v8-src/v8/out/release"
-          $argsContent | Set-Content -Path "v8-src/v8/out/release/args.gn" -Encoding utf8
+          mkdir v8-src
+          cd v8-src || exit /b 1
+          call fetch --no-history v8 || exit /b 1
+          cd v8 || exit /b 1
+          call git fetch origin +refs/branch-heads/${{ steps.v8ver.outputs.v8_branch }}:refs/branch-heads/${{ steps.v8ver.outputs.v8_branch }} || exit /b 1
+          call git checkout refs/branch-heads/${{ steps.v8ver.outputs.v8_branch }} || exit /b 1
+          cd ..
+          call gclient sync --no-history || exit /b 1
 
       - name: Build V8 monolith
         shell: cmd
         run: |
-          cd v8-src\v8
-          gn gen out\release
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          ninja -C out\release v8_monolith
-          if %errorlevel% neq 0 exit /b %errorlevel%
+          cd v8-src\v8 || exit /b 1
+          mkdir out\release
+          (echo is_debug = false
+          echo target_cpu = "${{ matrix.arch }}"
+          echo is_clang = true
+          echo is_component_build = false
+          echo v8_monolithic = true
+          echo v8_static_library = true
+          echo v8_use_external_startup_data = false
+          echo v8_enable_i18n_support = false
+          echo v8_enable_sandbox = false
+          echo v8_enable_pointer_compression = false
+          echo use_custom_libcxx = false
+          echo treat_warnings_as_errors = false
+          echo symbol_level = 0) > out\release\args.gn
+          echo === args.gn ===
+          type out\release\args.gn
+          echo === gn gen ===
+          call gn gen out\release || exit /b 1
+          echo === ninja ===
+          call ninja -C out\release v8_monolith || exit /b 1
+          echo === verifying output ===
+          dir out\release\obj\v8_monolith.lib || exit /b 1
 
       - name: Prepare artifacts
         shell: pwsh
@@ -383,17 +378,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$outDir/lib"
           New-Item -ItemType Directory -Force -Path "$outDir/include"
 
-          # Find and copy monolith library
-          $monolith = Get-ChildItem -Path "v8-src/v8/out/release" -Recurse -Filter "v8_monolith.lib" | Select-Object -First 1
-          if (-not $monolith) {
-            Write-Error "v8_monolith.lib not found. Listing build output:"
-            Get-ChildItem -Path "v8-src/v8/out/release/obj" -Recurse -Filter "*.lib" | ForEach-Object { Write-Host $_.FullName }
-            exit 1
-          }
-          Write-Host "Found monolith at: $($monolith.FullName)"
-          Copy-Item $monolith.FullName "$outDir/lib/"
-
-          # Copy V8 headers
+          Copy-Item "v8-src/v8/out/release/obj/v8_monolith.lib" "$outDir/lib/"
           Copy-Item -Recurse "v8-src/v8/include/*" "$outDir/include/"
 
           Compress-Archive -Path "$outDir" -DestinationPath "v8-v$version-win-$arch.zip"
