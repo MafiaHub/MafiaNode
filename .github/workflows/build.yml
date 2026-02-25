@@ -341,6 +341,13 @@ jobs:
           cd ..
           call gclient sync --no-history || exit /b 1
 
+      - name: Patch V8 build to use dynamic CRT (/MD)
+        shell: pwsh
+        run: |
+          $buildGn = "v8-src/v8/build/config/win/BUILD.gn"
+          (Get-Content $buildGn -Raw) -replace 'configs = \[ ":static_crt" \]', 'configs = [ ":dynamic_crt" ]' | Set-Content $buildGn
+          Write-Host "Patched $buildGn to use dynamic CRT (/MD)"
+
       - name: Build V8 monolith
         shell: cmd
         run: |
