@@ -334,10 +334,15 @@ jobs:
         run: |
           mkdir v8-src && cd v8-src
           fetch --no-history v8
+          if %errorlevel% neq 0 exit /b %errorlevel%
           cd v8
+          if %errorlevel% neq 0 exit /b %errorlevel%
           git fetch origin branch-heads/${{ steps.v8ver.outputs.v8_branch }}
+          if %errorlevel% neq 0 exit /b %errorlevel%
           git checkout FETCH_HEAD
+          if %errorlevel% neq 0 exit /b %errorlevel%
           gclient sync --no-history
+          if %errorlevel% neq 0 exit /b %errorlevel%
 
       - name: Generate GN args
         shell: pwsh
