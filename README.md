@@ -15,7 +15,7 @@ Embeddable Node.js runtime with full npm and ICU support.
 | Platform | Architecture | Download |
 |----------|--------------|----------|
 | Windows | x64 | `libnode-v{version}-win-x64.zip` |
-| Windows | x86 | `libnode-v{version}-win-x86.zip` |
+| Windows | x86 | `libnode-v{version}-win-x86.zip` *(Node.js <= 24 only)* |
 | macOS | arm64 | `libnode-v{version}-darwin-arm64.tar.gz` |
 | Linux | x64 | `libnode-v{version}-linux-x64.tar.gz` |
 
@@ -40,7 +40,8 @@ lib/
 ├── libnode.lib               # Import library (Windows)
 ├── libuv.lib/.a              # libuv async I/O
 ├── v8_libbase.lib/.a         # V8 base library
-└── v8_libplatform.lib/.a     # V8 platform library
+├── v8_libplatform.lib/.a     # V8 platform library
+└── abseil.lib/.a             # Abseil (V8 dependency)
 include/
 ├── node/                     # Node.js headers
 └── v8/                       # V8 headers
