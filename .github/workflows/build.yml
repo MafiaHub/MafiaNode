@@ -389,7 +389,7 @@ jobs:
           # args), so guard it by the V8 major version.
           if ($major -ge 13) {
             $gnArgs += 'v8_enable_temporal_support = false'
-            Write-Host "V8 $branch: disabling Temporal (drops temporal_capi/temporal_rs)"
+            Write-Host "V8 ${branch}: disabling Temporal (drops temporal_capi/temporal_rs)"
           } else {
             Write-Host "V8 $branch predates the Temporal Rust backend; leaving args.gn unchanged"
           }
