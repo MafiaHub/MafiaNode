@@ -356,28 +356,54 @@ jobs:
           (Get-Content $buildGn -Raw) -replace 'configs = \[ ":static_crt" \]', 'configs = [ ":dynamic_crt" ]' | Set-Content $buildGn
           Write-Host "Patched $buildGn to use dynamic CRT (/MD)"
 
+      - name: Generate V8 build args
+        shell: pwsh
+        run: |
+          $branch = "${{ steps.v8ver.outputs.v8_branch }}"
+          $major = [int]($branch.Split('.')[0])
+
+          New-Item -ItemType Directory -Force -Path "v8-src/v8/out/release" | Out-Null
+
+          $gnArgs = @(
+            'is_debug = false'
+            'target_cpu = "${{ matrix.arch }}"'
+            'is_clang = true'
+            'is_component_build = false'
+            'v8_monolithic = true'
+            'v8_static_library = true'
+            'v8_use_external_startup_data = false'
+            'v8_enable_i18n_support = false'
+            'v8_enable_sandbox = false'
+            'v8_enable_pointer_compression = false'
+            'use_custom_libcxx = false'
+            'treat_warnings_as_errors = false'
+            'symbol_level = 0'
+          )
+
+          # V8 13+ (Node.js 25+) ships the Temporal proposal, enabled here by default,
+          # backed by the Rust //third_party/rust/temporal_capi crate. That crate is a
+          # SEPARATE static library that is NOT linked into v8_monolith, so embedders
+          # linking the monolith get unresolved temporal_rs_* externals. Sandboxed
+          # embedding does not need Temporal, so disable it to keep the monolith
+          # self-contained. The GN arg only exists on V8 13+ (gn errors on unknown
+          # args), so guard it by the V8 major version.
+          if ($major -ge 13) {
+            $gnArgs += 'v8_enable_temporal_support = false'
+            Write-Host "V8 $branch: disabling Temporal (drops temporal_capi/temporal_rs)"
+          } else {
+            Write-Host "V8 $branch predates the Temporal Rust backend; leaving args.gn unchanged"
+          }
+
+          Set-Content -Path "v8-src/v8/out/release/args.gn" -Value $gnArgs -Encoding ascii
+          Write-Host "=== args.gn ==="
+          Get-Content "v8-src/v8/out/release/args.gn"
+
       - name: Build V8 monolith
         shell: cmd
         env:
           GYP_MSVS_OVERRIDE_PATH: ${{ steps.vsdetect.outputs.vs_path }}
         run: |
           cd v8-src\v8 || exit /b 1
-          mkdir out\release
-          (echo is_debug = false
-          echo target_cpu = "${{ matrix.arch }}"
-          echo is_clang = true
-          echo is_component_build = false
-          echo v8_monolithic = true
-          echo v8_static_library = true
-          echo v8_use_external_startup_data = false
-          echo v8_enable_i18n_support = false
-          echo v8_enable_sandbox = false
-          echo v8_enable_pointer_compression = false
-          echo use_custom_libcxx = false
-          echo treat_warnings_as_errors = false
-          echo symbol_level = 0) > out\release\args.gn
-          echo === args.gn ===
-          type out\release\args.gn
           echo === gn gen ===
           call gn gen out\release || exit /b 1
           echo === ninja ===
